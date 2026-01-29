@@ -54,8 +54,6 @@ module CPU (
     // ==========================================
     // 2. LÓGICA DO PC (Fetch Stage Manual)
     // ==========================================
-    // Implementado aqui manualmente porque a sua FetchUnit.v não aceita branch.
-    
     always @(posedge clk or posedge reset) begin
         if (reset)
             pc <= 32'b0;
