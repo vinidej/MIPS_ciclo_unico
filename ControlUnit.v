@@ -1,55 +1,53 @@
 module ControlUnit(
-    input wire [5:0] Opcode,      // Bits 31-26 da instrução
-    output reg RegDst,            // Escolhe destino: 0=rt, 1=rd
-    output reg Branch,            // 1 se for instrução de desvio (BEQ)
-    output reg MemRead,           // 1 se for ler da memória (LW)
-    output reg MemToReg,          // 0=ALU, 1=Memória
-    output reg [1:0] ALUOp,       // 00=LW/SW, 01=BEQ, 10=R-Type
-    output reg MemWrite,          // 1 se for escrever na memória (SW)
-    output reg ALUSrc,            // 0=RegB, 1=Imediato
-    output reg RegWrite           // 1 se for escrever no Banco de Registradores
+    input wire [5:0] Opcode,
+    output reg RegDst,
+    output reg Branch,
+    output reg MemRead,
+    output reg MemToReg,
+    output reg [1:0] ALUOp,
+    output reg MemWrite,
+    output reg ALUSrc,
+    output reg RegWrite
 );
 
     always @(*) begin
-        // Zera todos os sinais para evitar latch, depois ativa os necessários
+        // Zera tudo por padrão
         {RegDst, ALUSrc, MemToReg, RegWrite, MemRead, MemWrite, Branch, ALUOp} = 9'b0;
 
         case (Opcode)
-            // --- Tipo R (ADD, SUB, AND, OR, SLT) ---
-            // Opcode: 000000
+            // R-Type
             6'b000000: begin
-                RegDst   = 1'b1;
+                RegDst = 1'b1;
                 RegWrite = 1'b1;
-                ALUOp    = 2'b10;
+                ALUOp = 2'b10;
             end
-
-            // --- Load Word (LW) ---
-            // Opcode: 100011 (35 decimal)
+            // LW
             6'b100011: begin
-                ALUSrc   = 1'b1;
+                ALUSrc = 1'b1;
                 MemToReg = 1'b1;
                 RegWrite = 1'b1;
-                MemRead  = 1'b1;
-                ALUOp    = 2'b00;
+                MemRead = 1'b1;
+                ALUOp = 2'b00;
             end
-
-            // --- Store Word (SW) ---
-            // Opcode: 101011 (43 decimal)
+            // SW
             6'b101011: begin
-                ALUSrc   = 1'b1;
+                ALUSrc = 1'b1;
                 MemWrite = 1'b1;
-                ALUOp    = 2'b00;
+                ALUOp = 2'b00;
             end
-
-            // --- Branch Equal (BEQ) ---
-            // Opcode: 000100 (4 decimal)
+            // BEQ
             6'b000100: begin
-                Branch   = 1'b1;
-                ALUOp    = 2'b01;
+                Branch = 1'b1;
+                ALUOp = 2'b01;
             end
-            
-            // Adicione outros opcodes (ex: ADDI, JUMP) aqui se necessário
-            
+            // --- NOVO: ADDI (Opcode 001000) ---
+            // Funciona quase igual ao LW, mas escreve o resultado da ALU (não da memória)
+            6'b001000: begin
+                ALUSrc = 1'b1;      // Usa o imediato (número constante)
+                RegWrite = 1'b1;    // Escreve no registrador
+                ALUOp = 2'b00;      // Operação de SOMA (igual LW/SW)
+                // MemToReg fica 0 (pega da ALU), RegDst fica 0 (grava em rt)
+            end
         endcase
     end
 endmodule

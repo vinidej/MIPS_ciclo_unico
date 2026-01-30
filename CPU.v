@@ -7,6 +7,8 @@
 `include "Registradores.v"
 `include "ShiftLeft2.v"
 `include "SignalExtend.v"
+`include "ALUControl.v"
+`include "ControlUnit.v"
 
 module CPU (
     input clk,
@@ -14,48 +16,35 @@ module CPU (
 );
 
     // ==========================================
-    // 1. FIOS E SINAIS DE CONTROLE
+    // 1. FIOS (WIRES)
     // ==========================================
-    
-    // --- PC e Instrução ---
-    reg [31:0] pc;              // O registrador PC deve ser declarado aqui
-    wire [31:0] pc_next;        // O próximo valor do PC (decisão entre PC+4 e Branch)
-    wire [31:0] pc_plus_4;
+    reg [31:0] pc;
+    wire [31:0] pc_next, pc_plus_4;
     wire [31:0] instruction;
-
-    // --- Sinais de Controle (Wires aguardando sua Control Unit) ---
-    wire reg_dst;
-    wire branch;
-    wire mem_read;
-    wire mem_to_reg;
-    wire [3:0] alu_op;          // CORREÇÃO: Sua ALU pede 4 bits 
-    wire mem_write;
-    wire alu_src;
-    wire reg_write;
-
-    // --- Dados e Endereços ---
-    wire [4:0]  write_register_addr;
-    wire [31:0] write_data_reg;
-    wire [31:0] read_data_1;
-    wire [31:0] read_data_2;
-    wire [31:0] sign_extended;
     
-    wire [31:0] alu_input_b;
+    // Controle
+    wire reg_dst, branch, mem_read, mem_to_reg, mem_write, alu_src, reg_write;
+    wire [1:0] alu_op_main; 
+    wire [3:0] alu_control_fio;
+
+    // Dados
+    wire [4:0]  write_register_mux;
+    wire [31:0] write_data_reg_mux;
+    wire [31:0] read_data_1, read_data_2;
+    wire [31:0] sign_extended;
+    wire [31:0] alu_input_b_mux;
     wire [31:0] alu_result;
     wire zero_flag;
-    
     wire [31:0] mem_read_data;
     
-    // --- Branch ---
+    // Branch
     wire [31:0] branch_offset_shifted;
     wire [31:0] branch_target;
-    wire pc_src; // Sinal lógico para o multiplexador do PC
+    wire pc_src;
 
     // ==========================================
-    // 2. LÓGICA DO PC (Fetch Stage Manual)
+    // 2. LÓGICA DO PC
     // ==========================================
-    // Implementado aqui manualmente porque a sua FetchUnit.v não aceita branch.
-    
     always @(posedge clk or posedge reset) begin
         if (reset)
             pc <= 32'b0;
@@ -64,73 +53,80 @@ module CPU (
     end
 
     // ==========================================
-    // 3. INSTANCIAÇÃO DOS MÓDULOS
+    // 3. INSTANCIAS
     // ==========================================
 
-    // --- Memória de Instruções ---
     MemoriaDeInstrucoes InstrMem (
-        .addr(pc),              // Conecta ao PC atual
-        .instrucao(instruction) // Sai a instrução [cite: 59]
+        .addr(pc),
+        .instrucao(instruction)
     );
 
-    // --- Somador PC + 4 ---
-    Add4 PCAdder (
-        .in(pc),                // [cite: 1]
+    Add4 PC_Plus_4_Adder (
+        .in(pc),
         .out(pc_plus_4)
     );
 
-    // --- Decodificação e Registradores ---
-    
-    // Mux para definir registrador de escrita (Rt ou Rd)
-    assign write_register_addr = (reg_dst) ? instruction[15:11] : instruction[20:16];
+    ControlUnit MainControl (
+        .Opcode   (instruction[31:26]),
+        .RegDst   (reg_dst),
+        .Branch   (branch),
+        .MemRead  (mem_read),
+        .MemToReg (mem_to_reg),
+        .ALUOp    (alu_op_main),
+        .MemWrite (mem_write),
+        .ALUSrc   (alu_src),
+        .RegWrite (reg_write)
+    );
+
+    // Mux RegDst
+    assign write_register_mux = (reg_dst) ? instruction[15:11] : instruction[20:16];
 
     Registradores RegFile (
-        // ATENÇÃO: Seu arquivo Registradores.v NÃO tem porta de Clock 
-        .ReadRegister1(instruction[25:21]), 
-        .ReadRegister2(instruction[20:16]), 
-        .WriteRegister(write_register_addr),
-        .WriteData(write_data_reg), 
-        .RegWrite(reg_write), 
-        .ReadData1(read_data_1), 
+        .clk(clk),                          // <--- CORREÇÃO CRÍTICA AQUI
+        .ReadRegister1(instruction[25:21]),
+        .ReadRegister2(instruction[20:16]),
+        .WriteRegister(write_register_mux),
+        .WriteData(write_data_reg_mux),
+        .RegWrite(reg_write),
+        .ReadData1(read_data_1),
         .ReadData2(read_data_2)
     );
 
-    // Extensão de Sinal (Sign Extend)
-    SignExtend Extend (        // Nome do módulo é SignExtend, não SignalExtend 
+    SignalExtend Extender (
         .in(instruction[15:0]),
         .out(sign_extended)
     );
 
-    // --- Execução (ALU) ---
+    ALUControl AC_Unit (
+        .ALUOp  (alu_op_main),
+        .Funct  (instruction[5:0]),
+        .ALUCtl (alu_control_fio)
+    );
 
-    // Mux da ALU (Imediato vs Registrador)
-    assign alu_input_b = (alu_src) ? sign_extended : read_data_2;
+    // Mux ALUSrc
+    assign alu_input_b_mux = (alu_src) ? sign_extended : read_data_2;
 
     ALU MainALU (
-        .A(read_data_1),
-        .B(alu_input_b),
-        .ALUOperation(alu_op),  // Conecta 4 bits 
+        .A(read_data_1), 
+        .B(alu_input_b_mux),
+        .ALUOperation(alu_control_fio),
         .ALUResult(alu_result),
         .Zero(zero_flag)
     );
 
-    // --- Cálculo de Endereço de Branch ---
-    
     ShiftLeft2 Shifter (
         .in(sign_extended),
-        .out(branch_offset_shifted) // [cite: 77]
+        .out(branch_offset_shifted)
     );
 
-    Adder32 BranchAdder (
+    Adder32 BranchAddrAdder (
         .a(pc_plus_4),
         .b(branch_offset_shifted),
-        .sum(branch_target)     // Nome da porta é .sum [cite: 3]
+        .sum(branch_target)
     );
 
-    // --- Memória de Dados ---
-
-    DataMemory DataMem (
-        .clk(clk),              // Este módulo possui clock [cite: 44]
+    DataMemory MemData (
+        .clk(clk),
         .MemRead(mem_read),
         .MemWrite(mem_write),
         .address(alu_result),
@@ -138,20 +134,11 @@ module CPU (
         .readData(mem_read_data)
     );
 
-    // --- Write Back ---
-
-    // Mux MemToReg
-    assign write_data_reg = (mem_to_reg) ? mem_read_data : alu_result;
-
-
-    // ==========================================
-    // 4. LÓGICA DE PRÓXIMO PC
-    // ==========================================
-    
-    // Porta AND para decidir o Branch (Branch ativado E ALU Zero)
+    // Lógica PC Next
     assign pc_src = branch & zero_flag;
-
-    // Mux do PC
     assign pc_next = (pc_src) ? branch_target : pc_plus_4;
+
+    // Mux WriteBack
+    assign write_data_reg_mux = (mem_to_reg) ? mem_read_data : alu_result;
 
 endmodule
