@@ -33,6 +33,8 @@ module ControlUnit(
             6'b101011: begin
                 ALUSrc = 1'b1;
                 MemWrite = 1'b1;
+                RegWrite = 0;
+                MemRead = 0;
                 ALUOp = 2'b00;
             end
             // BEQ
