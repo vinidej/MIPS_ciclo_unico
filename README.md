@@ -1,0 +1,1 @@
+Relativo ao trabalho 3 da matéria de Arquitetura de Computadores. Implementa um processador MIPS de ciclo único.
